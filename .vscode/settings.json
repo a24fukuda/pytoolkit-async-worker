@@ -7,6 +7,9 @@
         "**/.ruff_cache": true,
         "**/*.egg-info": true,
     },
+    "[markdown]": {
+        "diffEditor.ignoreTrimWhitespace": true
+    },
     "[json]": {
         "editor.defaultFormatter": "vscode.json-language-features"
     },
@@ -21,10 +24,13 @@
             "source.organizeImports.ruff": "explicit"
         },
     },
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true,
     "python.analysis.typeEvaluation.strictDictionaryInference": true,
     "python.analysis.typeEvaluation.strictSetInference": true,
     "python.analysis.typeEvaluation.strictListInference": true,
-    "[markdown]": {
-        "diffEditor.ignoreTrimWhitespace": true
-    },
+    "python.analysis.typeCheckingMode": "strict",
 }
