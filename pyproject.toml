@@ -18,5 +18,5 @@ dev = [
 target-version = "py313"
 
 [tool.pyright]
-include = ["pytoolkit-async-worker", "tests"]
+include = ["pytoolkit_async_worker", "tests"]
 typeCheckingMode = "strict"

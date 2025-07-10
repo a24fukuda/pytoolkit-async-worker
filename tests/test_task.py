@@ -1,216 +1,125 @@
 """Tests for task module."""
 
-import asyncio
-from dataclasses import dataclass
-from uuid import UUID
-
 import pytest
 
-from pytoolkit_async_worker.optional import Optionl
-from pytoolkit_async_worker.task import BaseTask
+from pytoolkit_async_worker.result import Result
+from pytoolkit_async_worker.worker import Task, TaskResult
 
 
-@dataclass
-class MockTaskArgs:
-    """Mock task arguments."""
-    value: int
-    name: str
+class TestTask:
+    """Taskデータクラスのテストクラス。"""
+
+    def test_task_creation(self) -> None:
+        """Taskインスタンスが正しい属性で作成される。"""
+
+        async def sample_func(x: int) -> int:
+            return x * 2
+
+        task = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
+
+        assert task.func == sample_func
+        assert task.args == (5,)
+        assert task.kwargs == {"test": "value"}
+
+    def test_task_equality(self) -> None:
+        """同じ属性を持つTaskインスタンスが等価と判定される。"""
+
+        async def sample_func(x: int) -> int:
+            return x * 2
+
+        task1 = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
+        task2 = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
+        task3 = Task(func=sample_func, args=(10,), kwargs={"test": "value"})
+
+        assert task1 == task2
+        assert task1 != task3
+
+    def test_task_immutability(self) -> None:
+        """Taskインスタンスが不変オブジェクトであることを確認。"""
+
+        async def sample_func(x: int) -> int:
+            return x * 2
+
+        task = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
+
+        with pytest.raises(AttributeError):
+            task.args = (10,)  # type: ignore
+
+        with pytest.raises(AttributeError):
+            task.kwargs = {"new": "value"}  # type: ignore
 
 
-@dataclass
-class MockTaskResult:
-    """Mock task result."""
-    result: int
-    processed_name: str
+class TestTaskResult:
+    """TaskResultデータクラスのテストクラス。"""
 
+    def test_task_result_creation(self) -> None:
+        """TaskResultインスタンスが正しい属性で作成される。"""
+        result = TaskResult(args=(5,), kwargs={"test": "value"}, result=Result(10))
 
-class ConcreteTask(BaseTask[MockTaskArgs, MockTaskResult]):
-    """Concrete implementation of Task for testing."""
+        assert result.args == (5,)
+        assert result.kwargs == {"test": "value"}
+        assert result.result.is_ok()
+        assert result.result.value == 10
 
-    def __init__(self, args: MockTaskArgs) -> None:
-        super().__init__(args)
-
-    async def execute(self) -> MockTaskResult:
-        result = MockTaskResult(
-            result=self.args.value * 2, processed_name=self.args.name.upper()
-        )
-        self.result = Optionl(result)
-        return result
-
-
-class TestMockClasses:
-    """Mock classes used in tests."""
-
-    def test_mock_args_creation(self) -> None:
-        """MockTaskArgsインスタンスが正しい属性で作成される。"""
-        args = MockTaskArgs(value=10, name="test")
-        assert args.value == 10
-        assert args.name == "test"
-
-    def test_mock_args_equality(self) -> None:
-        """同じ値を持つMockTaskArgsインスタンスが等価と判定され、異なる値を持つインスタンスが非等価と判定される。"""
-        args1 = MockTaskArgs(value=10, name="test")
-        args2 = MockTaskArgs(value=10, name="test")
-        args3 = MockTaskArgs(value=20, name="test")
-
-        assert args1 == args2
-        assert args1 != args3
-
-    def test_mock_result_creation(self) -> None:
-        """MockTaskResultインスタンスが正しい属性で作成される。"""
-        result = MockTaskResult(result=20, processed_name="TEST")
-        assert result.result == 20
-        assert result.processed_name == "TEST"
-
-    def test_mock_result_equality(self) -> None:
-        """同じ値を持つMockTaskResultインスタンスが等価と判定される。"""
-        result1 = MockTaskResult(result=20, processed_name="TEST")
-        result2 = MockTaskResult(result=20, processed_name="TEST")
-        result3 = MockTaskResult(result=30, processed_name="TEST")
+    def test_task_result_equality(self) -> None:
+        """同じ属性を持つTaskResultインスタンスが等価と判定される。"""
+        result1 = TaskResult(args=(5,), kwargs={"test": "value"}, result=Result(10))
+        result2 = TaskResult(args=(5,), kwargs={"test": "value"}, result=Result(10))
+        result3 = TaskResult(args=(5,), kwargs={"test": "value"}, result=Result(20))
 
         assert result1 == result2
         assert result1 != result3
 
+    def test_task_result_immutability(self) -> None:
+        """TaskResultインスタンスが不変オブジェクトであることを確認。"""
+        result = TaskResult(args=(5,), kwargs={"test": "value"}, result=Result(10))
 
-class TestTask:
-    """BaseTask基底クラスのテストクラス。"""
+        with pytest.raises(AttributeError):
+            result.args = (10,)  # type: ignore
 
-    def test_task_initialization(self) -> None:
-        """BaseTaskインスタンスが一意のID、指定された引数、およびNoneの結果で初期化される。"""
-        args = MockTaskArgs(value=5, name="test")
-        task = ConcreteTask(args)
+        with pytest.raises(AttributeError):
+            result.result = Result(20)  # type: ignore
 
-        assert task.args == args
-        assert task.result.is_none()
-        assert isinstance(task.id, UUID)
+    def test_task_result_with_different_types(self) -> None:
+        """異なる結果型でもTaskResultが正しく動作する。"""
+        string_result = TaskResult(args=("hello",), kwargs={}, result=Result("HELLO"))
+        list_result = TaskResult(args=([1, 2, 3],), kwargs={}, result=Result([2, 4, 6]))
+        dict_result = TaskResult(
+            args=({"key": "value"},), kwargs={}, result=Result({"key": "VALUE"})
+        )
 
-    def test_task_unique_ids(self) -> None:
-        """異なるBaseTaskインスタンスが各々異なるUUIDを持つ。"""
-        args = MockTaskArgs(value=5, name="test")
-        task1 = ConcreteTask(args)
-        task2 = ConcreteTask(args)
+        assert string_result.result.is_ok()
+        assert string_result.result.value == "HELLO"
+        assert list_result.result.is_ok()
+        assert list_result.result.value == [2, 4, 6]
+        assert dict_result.result.is_ok()
+        assert dict_result.result.value == {"key": "VALUE"}
 
-        assert task1.id != task2.id
-        assert isinstance(task1.id, UUID)
-        assert isinstance(task2.id, UUID)
+    def test_task_result_with_empty_args_kwargs(self) -> None:
+        """空の引数とキーワード引数でもTaskResultが正しく動作する。"""
+        result = TaskResult(args=(), kwargs={}, result=Result(42))
 
-    @pytest.mark.asyncio
-    async def test_task_execution(self) -> None:
-        """execute()を呼び出すと結果が設定され、同じ結果が返される。"""
-        args = MockTaskArgs(value=5, name="test")
-        task = ConcreteTask(args)
+        assert result.args == ()
+        assert result.kwargs == {}
+        assert result.result.is_ok()
+        assert result.result.value == 42
 
-        assert task.result.is_none()
+    def test_task_result_with_error(self) -> None:
+        """エラー結果でもTaskResultが正しく動作する。"""
+        error = ValueError("計算エラー")
+        result = TaskResult(args=(10,), kwargs={}, result=Result[int](error))
 
-        result = await task.execute()
+        assert result.args == (10,)
+        assert result.kwargs == {}
+        assert result.result.is_error()
+        assert result.result.error == error
+        assert isinstance(result.result.error, ValueError)
 
-        assert result is not None
-        assert result.result == 10
-        assert result.processed_name == "TEST"
-        assert task.result.unwrap() == result
+    def test_task_result_error_access(self) -> None:
+        """エラー結果から値にアクセスすると例外が発生する。"""
+        error = RuntimeError("処理失敗")
+        result = TaskResult(args=(5,), kwargs={}, result=Result[str](error))
 
-    @pytest.mark.asyncio
-    async def test_task_execution_multiple_times(self) -> None:
-        """同じタスクを複数回実行しても同じ結果が得られる。"""
-        args = MockTaskArgs(value=5, name="test")
-        task = ConcreteTask(args)
-
-        first_result = await task.execute()
-
-        second_result = await task.execute()
-
-        # Results should be the same (task is deterministic)
-        assert first_result == second_result
-
-    def test_task_args_accessibility(self) -> None:
-        """BaseTask作成後に引数にアクセスできる。"""
-        args = MockTaskArgs(value=5, name="test")
-        task = ConcreteTask(args)
-
-        # Args should be accessible
-        assert task.args.value == 5
-        assert task.args.name == "test"
-
-    def test_task_result_accessibility(self) -> None:
-        """BaseTask実行後に結果にアクセスできる。"""
-        args = MockTaskArgs(value=5, name="test")
-        task = ConcreteTask(args)
-
-        # Execute the task
-        import asyncio
-
-        asyncio.run(task.execute())
-
-        # Result should be accessible
-        assert task.result.is_some()
-        assert task.result.unwrap().result == 10
-        assert task.result.unwrap().processed_name == "TEST"
-
-    def test_task_generic_typing(self) -> None:
-        """BaseTaskの引数と結果が正しい型でアクセスできる。"""
-        args = MockTaskArgs(value=5, name="test")
-        task = ConcreteTask(args)
-
-        # Type hints should work correctly
-        assert isinstance(task.args, MockTaskArgs)
-
-        # Before execution, result should be None
-        assert task.result.is_none()
-
-        # After execution, result should be the correct type
-        import asyncio
-
-        asyncio.run(task.execute())
-        assert isinstance(task.result.unwrap(), MockTaskResult)
-
-    def test_task_with_different_arg_types(self) -> None:
-        """異なる引数型でもBaseTaskが正しく動作し、期待される結果が得られる。"""
-
-        @dataclass
-        class SimpleArgs:
-            count: int
-
-        @dataclass
-        class SimpleResult:
-            doubled: int
-
-        class SimpleTask(BaseTask[SimpleArgs, SimpleResult]):
-            def __init__(self, args: SimpleArgs) -> None:
-                super().__init__(args)
-
-            async def execute(self) -> SimpleResult:
-                result = SimpleResult(doubled=self.args.count * 2)
-                self.result = Optionl(result)
-                return result
-
-        args = SimpleArgs(count=7)
-        task = SimpleTask(args)
-
-        asyncio.run(task.execute())
-
-        assert task.result.is_some()
-        assert task.result.unwrap().doubled == 14
-
-    def test_task_str_representation(self) -> None:
-        """BaseTaskインスタンスの文字列表現にクラス名が含まれる。"""
-        args = MockTaskArgs(value=5, name="test")
-        task = ConcreteTask(args)
-
-        # Task should have a reasonable string representation
-        task_str = str(task)
-        assert "ConcreteTask" in task_str or "Task" in task_str
-
-    def test_task_equality(self) -> None:
-        """同じ引数でも異なるBaseTaskインスタンスは非等価と判定され、同じインスタンスは等価と判定される。"""
-        args1 = MockTaskArgs(value=5, name="test")
-        args2 = MockTaskArgs(value=5, name="test")
-
-        task1 = ConcreteTask(args1)
-        task2 = ConcreteTask(args2)
-
-        # Tasks should not be equal even with same args (different IDs)
-        assert task1 != task2
-        assert task1.id != task2.id
-
-        # Task should be equal to itself
-        assert task1 == task1
+        assert result.result.is_error()
+        with pytest.raises(RuntimeError, match="処理失敗"):
+            _ = result.result.value

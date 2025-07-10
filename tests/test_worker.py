@@ -1,99 +1,99 @@
-"""Tests for worker module."""
+"""workerモジュールのテスト。"""
 
 import asyncio
-from dataclasses import dataclass
-from typing import Any
 
 import pytest
 
-from pytoolkit_async_worker.optional import Optionl
-from pytoolkit_async_worker.task import AnyTask, BaseTask
-from pytoolkit_async_worker.worker import worker
+from pytoolkit_async_worker.worker import (
+    PendingTaskQueue,
+    Task,
+    TaskResultQueue,
+    worker,
+)
 
 
-@dataclass
-class MockTaskArgs:
-    value: int
+async def mock_task_func(value: int) -> int:
+    """入力値を2倍にするモックタスク関数。"""
+    return value * 2
 
 
-@dataclass
-class MockTaskResult:
-    result: int
+async def slow_mock_task_func(value: int) -> int:
+    """処理に時間がかかるモックタスク関数。"""
+    await asyncio.sleep(0.1)
+    return value * 2
 
 
-class MockTask(BaseTask[MockTaskArgs, MockTaskResult]):
-    def __init__(self, args: MockTaskArgs) -> None:
-        super().__init__(args)
-
-    async def execute(self) -> MockTaskResult:
-        self.result = Optionl(MockTaskResult(result=self.args.value * 2))
-        return self.result.unwrap()
+async def failing_mock_task_func(value: int) -> int:
+    """常に失敗するモックタスク関数。"""
+    raise Exception("タスクの実行に失敗しました")
 
 
 class TestWorker:
     """worker関数のテストクラス。"""
 
     @pytest.fixture
-    def pending_task_queue(self) -> asyncio.Queue[AnyTask]:
+    def pending_task_queue(self) -> PendingTaskQueue[[int], int]:
         """未処理タスクキューのフィクスチャを作成する。"""
-        return asyncio.Queue()
+        return PendingTaskQueue[[int], int]()
 
     @pytest.fixture
-    def completed_task_queue(self) -> asyncio.Queue[AnyTask]:
-        """完了タスクキューのフィクスチャを作成する。"""
-        return asyncio.Queue()
+    def task_result_queue(self) -> TaskResultQueue[int]:
+        """タスク結果キューのフィクスチャを作成する。"""
+        return TaskResultQueue[int]()
 
     @pytest.mark.asyncio
     async def test_worker_processes_single_task(
         self,
-        pending_task_queue: asyncio.Queue[MockTask],
-        completed_task_queue: asyncio.Queue[MockTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーが単一タスクを処理し、結果が完了キューに格納される。"""
-        task = MockTask(MockTaskArgs(value=5))
+        task = Task[[int], int](func=mock_task_func, args=(5,), kwargs={})
         await pending_task_queue.put(task)
 
         await worker(
-            worker_id=1,
             pending_task_queue=pending_task_queue,
-            completed_task_queue=completed_task_queue,
+            task_result_queue=task_result_queue,
         )
 
         assert pending_task_queue.empty()
-        assert not completed_task_queue.empty()
+        assert not task_result_queue.empty()
 
-        completed_task = await completed_task_queue.get()
-        assert completed_task.result.unwrap().result == 10
+        task_result = await task_result_queue.get()
+        assert task_result.result.is_ok()
+        assert task_result.result.value == 10
+        assert task_result.args == (5,)
+        assert task_result.kwargs == {}
 
     @pytest.mark.asyncio
     async def test_worker_processes_multiple_tasks(
         self,
-        pending_task_queue: asyncio.Queue[MockTask],
-        completed_task_queue: asyncio.Queue[MockTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーが複数タスクを順次処理し、全ての結果が完了キューに格納される。"""
         tasks = [
-            MockTask(MockTaskArgs(value=1)),
-            MockTask(MockTaskArgs(value=2)),
-            MockTask(MockTaskArgs(value=3)),
+            Task[[int], int](func=mock_task_func, args=(1,), kwargs={}),
+            Task[[int], int](func=mock_task_func, args=(2,), kwargs={}),
+            Task[[int], int](func=mock_task_func, args=(3,), kwargs={}),
         ]
 
         for task in tasks:
             await pending_task_queue.put(task)
 
         await worker(
-            worker_id=1,
             pending_task_queue=pending_task_queue,
-            completed_task_queue=completed_task_queue,
+            task_result_queue=task_result_queue,
         )
 
         assert pending_task_queue.empty()
-        assert completed_task_queue.qsize() == 3
+        assert task_result_queue.qsize() == 3
 
         results = list[int]()
-        while not completed_task_queue.empty():
-            completed_task = await completed_task_queue.get()
-            results.append(completed_task.result.unwrap().result)
+        while not task_result_queue.empty():
+            task_result = await task_result_queue.get()
+            assert task_result.result.is_ok()
+            results.append(task_result.result.value)
 
         assert 2 in results
         assert 4 in results
@@ -102,117 +102,124 @@ class TestWorker:
     @pytest.mark.asyncio
     async def test_worker_with_empty_queue(
         self,
-        pending_task_queue: asyncio.Queue[MockTask],
-        completed_task_queue: asyncio.Queue[MockTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
         """空の未処理キューでワーカーが完了し、完了キューも空のままである。"""
         await worker(
-            worker_id=1,
             pending_task_queue=pending_task_queue,
-            completed_task_queue=completed_task_queue,
+            task_result_queue=task_result_queue,
         )
 
         assert pending_task_queue.empty()
-        assert completed_task_queue.empty()
+        assert task_result_queue.empty()
 
     @pytest.mark.asyncio
     async def test_worker_calls_task_done(
         self,
-        pending_task_queue: asyncio.Queue[MockTask],
-        completed_task_queue: asyncio.Queue[MockTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーがタスク処理後にtask_done()を呼び出す。"""
-        task = MockTask(MockTaskArgs(value=1))
+        task = Task[[int], int](func=mock_task_func, args=(1,), kwargs={})
         await pending_task_queue.put(task)
 
-        # Mock the task_done method to track calls
+        # task_doneメソッドをモックして呼び出しを追跡
         original_task_done = pending_task_queue.task_done
         task_done_calls = list[bool]()
 
-        def mock_task_done() -> Any:
+        def mock_task_done() -> None:
             task_done_calls.append(True)
             return original_task_done()
 
         pending_task_queue.task_done = mock_task_done
 
         await worker(
-            worker_id=1,
             pending_task_queue=pending_task_queue,
-            completed_task_queue=completed_task_queue,
+            task_result_queue=task_result_queue,
         )
 
         assert len(task_done_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_worker_id_parameter(
+    async def test_worker_with_kwargs(
         self,
-        pending_task_queue: asyncio.Queue[MockTask],
-        completed_task_queue: asyncio.Queue[MockTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
-        """異なるworker_idでもワーカーが正常に動作し、全タスクが処理される。"""
-        # Test with different worker IDs
-        for worker_id in [0, 1, 5, 10]:
-            await pending_task_queue.put(MockTask(MockTaskArgs(value=1)))
-            await worker(
-                worker_id=worker_id,
-                pending_task_queue=pending_task_queue,
-                completed_task_queue=completed_task_queue,
-            )
+        """キーワード引数を含むタスクでもワーカーが正常に動作する。"""
 
-        # Should process all tasks regardless of worker_id
+        async def task_with_kwargs(value: int, multiplier: int = 2) -> int:
+            return value * multiplier
+
+        task = Task[[int], int](
+            func=task_with_kwargs, args=(5,), kwargs={"multiplier": 3}
+        )
+        await pending_task_queue.put(task)
+
+        await worker(
+            pending_task_queue=pending_task_queue,
+            task_result_queue=task_result_queue,
+        )
+
         assert pending_task_queue.empty()
-        assert completed_task_queue.qsize() == 4
+        assert not task_result_queue.empty()
+
+        task_result = await task_result_queue.get()
+        assert task_result.result.is_ok()
+        assert task_result.result.value == 15
+        assert task_result.args == (5,)
+        assert task_result.kwargs == {"multiplier": 3}
 
     @pytest.mark.asyncio
     async def test_worker_with_failing_task(
         self,
-        pending_task_queue: asyncio.Queue[AnyTask],
-        completed_task_queue: asyncio.Queue[AnyTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
         """タスク実行が失敗した場合、ワーカーが例外を発生させる。"""
+        task = Task[[int], int](func=failing_mock_task_func, args=(1,), kwargs={})
+        await pending_task_queue.put(task)
 
-        class FailingTask(BaseTask[MockTaskArgs, MockTaskResult]):
-            def __init__(self, args: MockTaskArgs) -> None:
-                super().__init__(args)
-
-            async def execute(self) -> MockTaskResult:
-                raise Exception("Task execution failed")
-
-        failing_task = FailingTask(MockTaskArgs(value=1))
-        await pending_task_queue.put(failing_task)
-
-        # Worker should handle the exception and continue
-        with pytest.raises(Exception):
-            await worker(
-                worker_id=1,
-                pending_task_queue=pending_task_queue,
-                completed_task_queue=completed_task_queue,
-            )
+        # ワーカーは例外を処理して継続すべき
+        await worker(
+            pending_task_queue=pending_task_queue,
+            task_result_queue=task_result_queue,
+        )
+        
+        # エラー結果が格納されるべき
+        assert not task_result_queue.empty()
+        task_result = await task_result_queue.get()
+        assert task_result.result.is_error()
+        assert "タスクの実行に失敗しました" in str(task_result.result.error)
 
     @pytest.mark.asyncio
     async def test_worker_task_execution_order(
         self,
-        pending_task_queue: asyncio.Queue[MockTask],
-        completed_task_queue: asyncio.Queue[MockTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーがタスクをFIFO順で処理し、結果が同じ順序で出力される。"""
         values = [1, 2, 3, 4, 5]
-        tasks = [MockTask(MockTaskArgs(value=val)) for val in values]
+        tasks = [
+            Task[[int], int](func=mock_task_func, args=(val,), kwargs={})
+            for val in values
+        ]
 
         for task in tasks:
             await pending_task_queue.put(task)
 
         await worker(
-            worker_id=1,
             pending_task_queue=pending_task_queue,
-            completed_task_queue=completed_task_queue,
+            task_result_queue=task_result_queue,
         )
 
-        # Tasks should be processed in FIFO order
+        # タスクはFIFO順で処理されるべき
         results = list[int]()
-        while not completed_task_queue.empty():
-            completed_task = await completed_task_queue.get()
-            results.append(completed_task.result.unwrap().result)
+        while not task_result_queue.empty():
+            task_result = await task_result_queue.get()
+            assert task_result.result.is_ok()
+            results.append(task_result.result.value)
 
         expected_results = [val * 2 for val in values]
         assert results == expected_results
@@ -220,51 +227,44 @@ class TestWorker:
     @pytest.mark.asyncio
     async def test_worker_concurrent_execution(self) -> None:
         """複数ワーカーが同時実行され、全タスクが処理される。"""
-        pending_queue = asyncio.Queue[MockTask]()
-        completed_queue = asyncio.Queue[MockTask]()
+        pending_queue = PendingTaskQueue[[int], int]()
+        result_queue = TaskResultQueue[int]()
 
-        # Add multiple tasks
-        tasks = [MockTask(MockTaskArgs(value=i)) for i in range(10)]
+        # 複数のタスクを追加
+        tasks = [
+            Task[[int], int](func=mock_task_func, args=(i,), kwargs={})
+            for i in range(10)
+        ]
         for task in tasks:
             await pending_queue.put(task)
 
-        # Run multiple workers concurrently
-        workers = [worker(i, pending_queue, completed_queue) for i in range(3)]
+        # 複数のワーカーを並行実行
+        workers = [worker(pending_queue, result_queue) for _ in range(3)]
 
         await asyncio.gather(*workers)
 
-        # All tasks should be processed
+        # 全てのタスクが処理されるべき
         assert pending_queue.empty()
-        assert completed_queue.qsize() == 10
+        assert result_queue.qsize() == 10
 
     @pytest.mark.asyncio
     async def test_worker_with_slow_task(
         self,
-        pending_task_queue: asyncio.Queue[AnyTask],
-        completed_task_queue: asyncio.Queue[AnyTask],
+        pending_task_queue: PendingTaskQueue[[int], int],
+        task_result_queue: TaskResultQueue[int],
     ) -> None:
         """実行に時間のかかるタスクでもワーカーが待機し、正しい結果を出力する。"""
-
-        class SlowTask(BaseTask[MockTaskArgs, MockTaskResult]):
-            def __init__(self, args: MockTaskArgs) -> None:
-                super().__init__(args)
-
-            async def execute(self) -> MockTaskResult:
-                await asyncio.sleep(0.1)  # Simulate slow task
-                self.result = Optionl(MockTaskResult(result=self.args.value * 2))
-                return self.result.unwrap()
-
-        slow_task = SlowTask(MockTaskArgs(value=5))
-        await pending_task_queue.put(slow_task)
+        task = Task[[int], int](func=slow_mock_task_func, args=(5,), kwargs={})
+        await pending_task_queue.put(task)
 
         await worker(
-            worker_id=1,
             pending_task_queue=pending_task_queue,
-            completed_task_queue=completed_task_queue,
+            task_result_queue=task_result_queue,
         )
 
         assert pending_task_queue.empty()
-        assert not completed_task_queue.empty()
+        assert not task_result_queue.empty()
 
-        completed_task = await completed_task_queue.get()
-        assert completed_task.result.unwrap().result == 10
+        task_result = await task_result_queue.get()
+        assert task_result.result.is_ok()
+        assert task_result.result.value == 10
