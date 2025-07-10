@@ -1,7 +1,7 @@
 [project]
 name = "pytoolkit-async-worker"
 version = "0.1.0"
-description = "Add your description here"
+description = "Result型による例外安全な非同期タスクワーカーライブラリ"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
