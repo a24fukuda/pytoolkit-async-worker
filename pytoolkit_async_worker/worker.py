@@ -18,7 +18,7 @@ from typing import (
     TypeVar,
 )
 
-from .result import Result
+from pytoolkit_rustlike import Err, Ok, Option, Result, Some
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -55,7 +55,7 @@ class TaskResult(Generic[R]):
 
     args: tuple[Any, ...]
     kwargs: dict[str, Any]
-    result: Result[R]
+    result: Result[Option[R]]
 
 
 AsyncioTask = asyncio.Task[Any]
@@ -84,9 +84,9 @@ async def worker(
 
         try:
             return_value = await task.func(*task.args, **task.kwargs)
-            result = Result[R](return_value)
+            result = Ok[Option[R]](Some(return_value))
         except Exception as e:
-            result = Result[R](e)
+            result = Err[Option[R]](e)
 
         task_result = TaskResult(args=task.args, kwargs=task.kwargs, result=result)
         await task_result_queue.put(task_result)

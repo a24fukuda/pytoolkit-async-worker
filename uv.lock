@@ -99,8 +99,11 @@ wheels = [
 
 [[package]]
 name = "pytoolkit-async-worker"
-version = "0.1.0"
-source = { virtual = "." }
+version = "2025.7.15"
+source = { editable = "." }
+dependencies = [
+    { name = "pytoolkit-rustlike" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -111,6 +114,7 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [{ name = "pytoolkit-rustlike", git = "https://github.com/a24fukuda/pytoolkit-rustlike.git?rev=v2025.07.14.01" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -119,6 +123,11 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.0.0" },
     { name = "ruff", specifier = ">=0.12.2" },
 ]
+
+[[package]]
+name = "pytoolkit-rustlike"
+version = "2025.7.14.1"
+source = { git = "https://github.com/a24fukuda/pytoolkit-rustlike.git?rev=v2025.07.14.01#7c77823ab092a7e8fe383e591ddb9ba0653b75ff" }
 
 [[package]]
 name = "ruff"

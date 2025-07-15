@@ -48,7 +48,7 @@ class TestWorker:
         task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーが単一タスクを処理し、結果が完了キューに格納される。"""
-        task = Task[[int], int](func=mock_task_func, args=(5,), kwargs={})
+        task: Task[[int], int] = Task[[int], int](func=mock_task_func, args=(5,), kwargs={})
         await pending_task_queue.put(task)
 
         await worker(
@@ -61,7 +61,7 @@ class TestWorker:
 
         task_result = await task_result_queue.get()
         assert task_result.result.is_ok()
-        assert task_result.result.value == 10
+        assert task_result.result.unwrap().unwrap() == 10
         assert task_result.args == (5,)
         assert task_result.kwargs == {}
 
@@ -72,7 +72,7 @@ class TestWorker:
         task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーが複数タスクを順次処理し、全ての結果が完了キューに格納される。"""
-        tasks = [
+        tasks: list[Task[[int], int]] = [
             Task[[int], int](func=mock_task_func, args=(1,), kwargs={}),
             Task[[int], int](func=mock_task_func, args=(2,), kwargs={}),
             Task[[int], int](func=mock_task_func, args=(3,), kwargs={}),
@@ -89,11 +89,11 @@ class TestWorker:
         assert pending_task_queue.empty()
         assert task_result_queue.qsize() == 3
 
-        results = list[int]()
+        results: list[int] = []
         while not task_result_queue.empty():
             task_result = await task_result_queue.get()
             assert task_result.result.is_ok()
-            results.append(task_result.result.value)
+            results.append(task_result.result.unwrap().unwrap())
 
         assert 2 in results
         assert 4 in results
@@ -121,12 +121,12 @@ class TestWorker:
         task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーがタスク処理後にtask_done()を呼び出す。"""
-        task = Task[[int], int](func=mock_task_func, args=(1,), kwargs={})
+        task: Task[[int], int] = Task[[int], int](func=mock_task_func, args=(1,), kwargs={})
         await pending_task_queue.put(task)
 
         # task_doneメソッドをモックして呼び出しを追跡
         original_task_done = pending_task_queue.task_done
-        task_done_calls = list[bool]()
+        task_done_calls: list[bool] = []
 
         def mock_task_done() -> None:
             task_done_calls.append(True)
@@ -152,7 +152,7 @@ class TestWorker:
         async def task_with_kwargs(value: int, multiplier: int = 2) -> int:
             return value * multiplier
 
-        task = Task[[int], int](
+        task: Task[[int], int] = Task[[int], int](
             func=task_with_kwargs, args=(5,), kwargs={"multiplier": 3}
         )
         await pending_task_queue.put(task)
@@ -167,7 +167,7 @@ class TestWorker:
 
         task_result = await task_result_queue.get()
         assert task_result.result.is_ok()
-        assert task_result.result.value == 15
+        assert task_result.result.unwrap().unwrap() == 15
         assert task_result.args == (5,)
         assert task_result.kwargs == {"multiplier": 3}
 
@@ -178,7 +178,7 @@ class TestWorker:
         task_result_queue: TaskResultQueue[int],
     ) -> None:
         """タスク実行が失敗した場合、ワーカーが例外を発生させる。"""
-        task = Task[[int], int](func=failing_mock_task_func, args=(1,), kwargs={})
+        task: Task[[int], int] = Task[[int], int](func=failing_mock_task_func, args=(1,), kwargs={})
         await pending_task_queue.put(task)
 
         # ワーカーは例外を処理して継続すべき
@@ -190,8 +190,8 @@ class TestWorker:
         # エラー結果が格納されるべき
         assert not task_result_queue.empty()
         task_result = await task_result_queue.get()
-        assert task_result.result.is_error()
-        assert "タスクの実行に失敗しました" in str(task_result.result.error)
+        assert task_result.result.is_err()
+        assert "タスクの実行に失敗しました" in str(task_result.result.unwrap_err())
 
     @pytest.mark.asyncio
     async def test_worker_task_execution_order(
@@ -200,8 +200,8 @@ class TestWorker:
         task_result_queue: TaskResultQueue[int],
     ) -> None:
         """ワーカーがタスクをFIFO順で処理し、結果が同じ順序で出力される。"""
-        values = [1, 2, 3, 4, 5]
-        tasks = [
+        values: list[int] = [1, 2, 3, 4, 5]
+        tasks: list[Task[[int], int]] = [
             Task[[int], int](func=mock_task_func, args=(val,), kwargs={})
             for val in values
         ]
@@ -215,23 +215,23 @@ class TestWorker:
         )
 
         # タスクはFIFO順で処理されるべき
-        results = list[int]()
+        results: list[int] = []
         while not task_result_queue.empty():
             task_result = await task_result_queue.get()
             assert task_result.result.is_ok()
-            results.append(task_result.result.value)
+            results.append(task_result.result.unwrap().unwrap())
 
-        expected_results = [val * 2 for val in values]
+        expected_results: list[int] = [val * 2 for val in values]
         assert results == expected_results
 
     @pytest.mark.asyncio
     async def test_worker_concurrent_execution(self) -> None:
         """複数ワーカーが同時実行され、全タスクが処理される。"""
-        pending_queue = PendingTaskQueue[[int], int]()
-        result_queue = TaskResultQueue[int]()
+        pending_queue: PendingTaskQueue[[int], int] = PendingTaskQueue[[int], int]()
+        result_queue: TaskResultQueue[int] = TaskResultQueue[int]()
 
         # 複数のタスクを追加
-        tasks = [
+        tasks: list[Task[[int], int]] = [
             Task[[int], int](func=mock_task_func, args=(i,), kwargs={})
             for i in range(10)
         ]
@@ -254,7 +254,7 @@ class TestWorker:
         task_result_queue: TaskResultQueue[int],
     ) -> None:
         """実行に時間のかかるタスクでもワーカーが待機し、正しい結果を出力する。"""
-        task = Task[[int], int](func=slow_mock_task_func, args=(5,), kwargs={})
+        task: Task[[int], int] = Task[[int], int](func=slow_mock_task_func, args=(5,), kwargs={})
         await pending_task_queue.put(task)
 
         await worker(
@@ -267,4 +267,4 @@ class TestWorker:
 
         task_result = await task_result_queue.get()
         assert task_result.result.is_ok()
-        assert task_result.result.value == 10
+        assert task_result.result.unwrap().unwrap() == 10

@@ -31,7 +31,7 @@ class TestWorkerManager:
     @pytest.mark.asyncio
     async def test_init(self) -> None:
         """WorkerManagerが指定されたパラメーターで初期化され、空のワーカーリストを持つ。"""
-        manager = WorkerManager[[int], int](
+        manager: WorkerManager[[int], int] = WorkerManager[[int], int](
             worker=worker,
             max_workers=3,
         )
@@ -50,13 +50,13 @@ class TestWorkerManager:
         """単一タスクが実行され、期待される結果が得られる。"""
         await worker_manager.add_task(mock_task_func, 5)
 
-        results = list[TaskResult[int]]()
+        results: list[TaskResult[int]] = []
         async for task_result in worker_manager.execute():
             results.append(task_result)
 
         assert len(results) == 1
         assert results[0].result.is_ok()
-        assert results[0].result.value == 10
+        assert results[0].result.unwrap().unwrap() == 10
         assert results[0].args == (5,)
         assert results[0].kwargs == {}
 
@@ -70,15 +70,15 @@ class TestWorkerManager:
         await worker_manager.add_task(mock_task_func, 2)
         await worker_manager.add_task(mock_task_func, 3)
 
-        results = list[TaskResult[int]]()
+        results: list[TaskResult[int]] = []
         async for task_result in worker_manager.execute():
             results.append(task_result)
 
         assert len(results) == 3
-        result_values = list[int]()
+        result_values: list[int] = []
         for task_result in results:
             assert task_result.result.is_ok()
-            result_values.append(task_result.result.value)
+            result_values.append(task_result.result.unwrap().unwrap())
         assert 2 in result_values
         assert 4 in result_values
         assert 6 in result_values
@@ -88,7 +88,7 @@ class TestWorkerManager:
         self, worker_manager: WorkerManager[[int], int]
     ) -> None:
         """空のタスクキューでワーカーが完了し、結果が出力されない。"""
-        results = list[TaskResult[int]]()
+        results: list[TaskResult[int]] = []
         try:
             async with asyncio.timeout(2.0):
                 async for task_result in worker_manager.execute():
@@ -107,7 +107,7 @@ class TestWorkerManager:
         await worker_manager.add_task(mock_task_func, 1)
 
         # Start execution to create workers
-        results = list[TaskResult[int]]()
+        results: list[TaskResult[int]] = []
         async for task_result in worker_manager.execute():
             results.append(task_result)
             break
@@ -128,12 +128,12 @@ class TestWorkerManager:
             """タスクを処理しないモックワーカー。"""
             pass
 
-        manager = WorkerManager[[int], int](
+        manager: WorkerManager[[int], int] = WorkerManager[[int], int](
             worker=slow_worker,
             max_workers=1,
         )
 
-        results = list[TaskResult[int]]()
+        results: list[TaskResult[int]] = []
         try:
             async with asyncio.timeout(2.0):
                 async for task_result in manager.execute():
@@ -154,7 +154,7 @@ class TestWorkerManager:
             """例外を発生させるモックワーカー。"""
             raise Exception("Worker failed")
 
-        manager = WorkerManager[[int], int](
+        manager: WorkerManager[[int], int] = WorkerManager[[int], int](
             worker=failing_worker,
             max_workers=1,
         )
@@ -169,7 +169,7 @@ class TestWorkerManager:
     @pytest.mark.asyncio
     async def test_concurrent_workers(self) -> None:
         """複数ワーカーが同時にタスクを処理し、全タスクが完了する。"""
-        manager = WorkerManager[[int], int](
+        manager: WorkerManager[[int], int] = WorkerManager[[int], int](
             worker=worker,
             max_workers=3,
         )
@@ -177,17 +177,17 @@ class TestWorkerManager:
         for i in range(5):
             await manager.add_task(mock_task_func, i)
 
-        results = list[TaskResult[int]]()
+        results: list[TaskResult[int]] = []
         async for task_result in manager.execute():
             results.append(task_result)
 
         assert len(results) == 5
         # All tasks should be processed
-        result_values = list[int]()
+        result_values: list[int] = []
         for task_result in results:
             assert task_result.result.is_ok()
-            result_values.append(task_result.result.value)
-        expected_values = [i * 2 for i in range(5)]
+            result_values.append(task_result.result.unwrap().unwrap())
+        expected_values: list[int] = [i * 2 for i in range(5)]
         assert set(result_values) == set(expected_values)
 
     @pytest.mark.asyncio
@@ -196,12 +196,12 @@ class TestWorkerManager:
         worker_manager: WorkerManager[[int], int],
     ) -> None:
         """全タスクが処理され、期待される値のセットが得られる（並行性により順序は変動する可能性あり）。"""
-        task_values = [1, 2, 3, 4, 5]
+        task_values: list[int] = [1, 2, 3, 4, 5]
 
         for val in task_values:
             await worker_manager.add_task(mock_task_func, val)
 
-        results = list[TaskResult[int]]()
+        results: list[TaskResult[int]] = []
         async for task_result in worker_manager.execute():
             results.append(task_result)
 
@@ -209,9 +209,9 @@ class TestWorkerManager:
         assert len(results) == len(task_values)
 
         # All expected results should be present (order may vary)
-        expected_results = [val * 2 for val in task_values]
-        actual_results = list[int]()
+        expected_results: list[int] = [val * 2 for val in task_values]
+        actual_results: list[int] = []
         for task_result in results:
             assert task_result.result.is_ok()
-            actual_results.append(task_result.result.value)
+            actual_results.append(task_result.result.unwrap().unwrap())
         assert set(actual_results) == set(expected_results)

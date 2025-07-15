@@ -1,10 +1,10 @@
 [project]
 name = "pytoolkit-async-worker"
-version = "0.1.0"
+version = "v2025.07.15"
 description = "Result型による例外安全な非同期タスクワーカーライブラリ"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = ["pytoolkit-rustlike"]
 
 [dependency-groups]
 dev = [
@@ -24,3 +24,6 @@ target-version = "py313"
 [tool.pyright]
 include = ["pytoolkit_async_worker", "tests"]
 typeCheckingMode = "strict"
+
+[tool.uv.sources]
+pytoolkit-rustlike = { git = "https://github.com/a24fukuda/pytoolkit-rustlike.git", rev = "v2025.07.14.01" }
