@@ -114,7 +114,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pytoolkit-rustlike", git = "https://github.com/a24fukuda/pytoolkit-rustlike.git?rev=v2025.07.14.01" }]
+requires-dist = [{ name = "pytoolkit-rustlike", git = "https://github.com/a24fukuda/pytoolkit-rustlike.git?rev=v2025.07.16.02" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -126,8 +126,8 @@ dev = [
 
 [[package]]
 name = "pytoolkit-rustlike"
-version = "2025.7.14.1"
-source = { git = "https://github.com/a24fukuda/pytoolkit-rustlike.git?rev=v2025.07.14.01#7c77823ab092a7e8fe383e591ddb9ba0653b75ff" }
+version = "2025.7.16.2"
+source = { git = "https://github.com/a24fukuda/pytoolkit-rustlike.git?rev=v2025.07.16.02#27112965c02cf3d77b11fe2079993e02ed534a78" }
 
 [[package]]
 name = "ruff"

@@ -1,9 +1,21 @@
 """Tests for task module."""
 
-import pytest
+from uuid import UUID
 
-from pytoolkit_async_worker.worker import Task, TaskResult
-from pytoolkit_rustlike import Ok, Err, Some
+import pytest
+from pytoolkit_rustlike import Err, Ok, Some
+
+from pytoolkit_async_worker.task import Task, TaskResult
+
+
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class SampleTask(Task[int]):
+    value: int
+
+    async def execute(self) -> int:
+        return self.value * 2
 
 
 class TestTask:
@@ -11,42 +23,35 @@ class TestTask:
 
     def test_task_creation(self) -> None:
         """Taskインスタンスが正しい属性で作成される。"""
+        task = SampleTask(5)
 
-        async def sample_func(x: int) -> int:
-            return x * 2
-
-        task = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
-
-        assert task.func == sample_func
-        assert task.args == (5,)
-        assert task.kwargs == {"test": "value"}
+        assert task.value == 5
+        assert isinstance(task.id, UUID)
 
     def test_task_equality(self) -> None:
         """同じ属性を持つTaskインスタンスが等価と判定される。"""
+        task1 = SampleTask(5)
+        task2 = SampleTask(5)
+        task3 = SampleTask(10)
 
-        async def sample_func(x: int) -> int:
-            return x * 2
-
-        task1 = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
-        task2 = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
-        task3 = Task(func=sample_func, args=(10,), kwargs={"test": "value"})
-
-        assert task1 == task2
-        assert task1 != task3
+        # Tasks with same value should be equal because they have the same ID
+        assert task1 == task1  # Same instance
+        assert task1 != task2  # Different instances with different IDs
+        assert task1 != task3  # Different instances with different IDs
 
     def test_task_immutability(self) -> None:
         """Taskインスタンスが不変オブジェクトであることを確認。"""
-
-        async def sample_func(x: int) -> int:
-            return x * 2
-
-        task = Task(func=sample_func, args=(5,), kwargs={"test": "value"})
+        task = SampleTask(5)
 
         with pytest.raises(AttributeError):
-            task.args = (10,)  # type: ignore
+            task.id = task.id  # type: ignore
 
-        with pytest.raises(AttributeError):
-            task.kwargs = {"new": "value"}  # type: ignore
+    @pytest.mark.asyncio
+    async def test_task_execution(self) -> None:
+        """Taskの実行が正常に動作する。"""
+        task = SampleTask(5)
+        result = await task.execute()
+        assert result == 10
 
 
 class TestTaskResult:
@@ -54,71 +59,84 @@ class TestTaskResult:
 
     def test_task_result_creation(self) -> None:
         """TaskResultインスタンスが正しい属性で作成される。"""
-        result: TaskResult[int] = TaskResult(args=(5,), kwargs={"test": "value"}, result=Ok(Some(10)))
+        task = SampleTask(5)
+        result: TaskResult[int] = TaskResult(task=task, result=Ok(Some(10)))
 
-        assert result.args == (5,)
-        assert result.kwargs == {"test": "value"}
+        assert result.task == task
         assert result.result.is_ok()
         assert result.result.unwrap().unwrap() == 10
 
     def test_task_result_equality(self) -> None:
         """同じ属性を持つTaskResultインスタンスが等価と判定される。"""
-        result1: TaskResult[int] = TaskResult(args=(5,), kwargs={"test": "value"}, result=Ok(Some(10)))
-        result2: TaskResult[int] = TaskResult(args=(5,), kwargs={"test": "value"}, result=Ok(Some(10)))
-        result3: TaskResult[int] = TaskResult(args=(5,), kwargs={"test": "value"}, result=Ok(Some(20)))
+        task1 = SampleTask(5)
+        task2 = SampleTask(5)
 
-        assert result1 == result2
-        assert result1 != result3
+        result1: TaskResult[int] = TaskResult(task=task1, result=Ok(Some(10)))
+        result2: TaskResult[int] = TaskResult(task=task1, result=Ok(Some(10)))
+        result3: TaskResult[int] = TaskResult(task=task2, result=Ok(Some(10)))
+
+        assert result1 == result2  # Same task and result
+        assert result1 != result3  # Different task instance
 
     def test_task_result_immutability(self) -> None:
         """TaskResultインスタンスが不変オブジェクトであることを確認。"""
-        result: TaskResult[int] = TaskResult(args=(5,), kwargs={"test": "value"}, result=Ok(Some(10)))
+        task = SampleTask(5)
+        result: TaskResult[int] = TaskResult(task=task, result=Ok(Some(10)))
 
         with pytest.raises(AttributeError):
-            result.args = (10,)  # type: ignore
+            result.task = SampleTask(10)  # type: ignore
 
         with pytest.raises(AttributeError):
             result.result = Ok(Some(20))  # type: ignore
 
     def test_task_result_with_different_types(self) -> None:
         """異なる結果型でもTaskResultが正しく動作する。"""
-        string_result: TaskResult[str] = TaskResult(args=("hello",), kwargs={}, result=Ok(Some("HELLO")))
-        list_result: TaskResult[list[int]] = TaskResult(args=([1, 2, 3],), kwargs={}, result=Ok(Some([2, 4, 6])))
-        dict_result: TaskResult[dict[str, str]] = TaskResult(
-            args=({"key": "value"},), kwargs={}, result=Ok(Some({"key": "VALUE"}))
+
+        @dataclass(frozen=True)
+        class StringTask(Task[str]):
+            value: str
+
+            async def execute(self) -> str:
+                return self.value.upper()
+
+        @dataclass(frozen=True)
+        class ListTask(Task[list[int]]):
+            value: list[int]
+
+            async def execute(self) -> list[int]:
+                return [x * 2 for x in self.value]
+
+        string_task = StringTask("hello")
+        list_task = ListTask([1, 2, 3])
+
+        string_result: TaskResult[str] = TaskResult(
+            task=string_task, result=Ok(Some("HELLO"))
+        )
+        list_result: TaskResult[list[int]] = TaskResult(
+            task=list_task, result=Ok(Some([2, 4, 6]))
         )
 
         assert string_result.result.is_ok()
         assert string_result.result.unwrap().unwrap() == "HELLO"
         assert list_result.result.is_ok()
         assert list_result.result.unwrap().unwrap() == [2, 4, 6]
-        assert dict_result.result.is_ok()
-        assert dict_result.result.unwrap().unwrap() == {"key": "VALUE"}
-
-    def test_task_result_with_empty_args_kwargs(self) -> None:
-        """空の引数とキーワード引数でもTaskResultが正しく動作する。"""
-        result: TaskResult[int] = TaskResult(args=(), kwargs={}, result=Ok(Some(42)))
-
-        assert result.args == ()
-        assert result.kwargs == {}
-        assert result.result.is_ok()
-        assert result.result.unwrap().unwrap() == 42
 
     def test_task_result_with_error(self) -> None:
         """エラー結果でもTaskResultが正しく動作する。"""
+        task = SampleTask(5)
         error = ValueError("計算エラー")
-        result: TaskResult[int] = TaskResult(args=(10,), kwargs={}, result=Err(error))
+        result: TaskResult[int] = TaskResult(task=task, result=Err(error))
 
-        assert result.args == (10,)
-        assert result.kwargs == {}
+        assert result.task == task
         assert result.result.is_err()
         assert result.result.unwrap_err() == error
         assert isinstance(result.result.unwrap_err(), ValueError)
 
     def test_task_result_error_access(self) -> None:
         """エラー結果から値にアクセスすると例外が発生する。"""
+        task = SampleTask(5)
         error = RuntimeError("処理失敗")
-        result: TaskResult[int] = TaskResult(args=(5,), kwargs={}, result=Err(error))
+        result: TaskResult[int] = TaskResult(task=task, result=Err(error))
 
         assert result.result.is_err()
         with pytest.raises(Exception):

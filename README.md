@@ -14,7 +14,7 @@ Result 型により例外安全性を確保し、エラーと正常な結果を�
 - **ワーカープール**: 複数のワーカーによる並列タスク処理
 - **型安全性**: 厳密な型チェックとジェネリクス対応
 - **例外安全性**: Result 型による安全なエラーハンドリング
-- **シンプルな API**: 関数ベースの直感的なインターフェース
+- **タスククラス**: 処理をクラスとして表現する直感的なAPI
 
 ## 要件
 
@@ -30,33 +30,112 @@ uv add pytoolkit-async-worker
 
 ### 基本的な使用例
 
+`Task`クラスを継承して、具体的な処理を実装します：
+
 ```python
 import asyncio
-from pytoolkit_async_worker.worker import WorkerManager
+from pytoolkit_async_worker.task import Task, frozen_dataclass
+from pytoolkit_async_worker.worker_manager import WorkerManager
 
-# タスク関数を定義
-async def process_data(value: int) -> int:
-    # 何らかの非同期処理
-    await asyncio.sleep(0.1)
-    return value * 2
+@frozen_dataclass
+class CalculationTask(Task[int]):
+    """数値計算タスク"""
+    value: int
+    multiplier: int = 2
+    
+    async def execute(self) -> int:
+        # 何らかの非同期処理
+        await asyncio.sleep(0.1)
+        return self.value * self.multiplier
 
 async def main():
     # ワーカーマネージャーを作成
-    manager = WorkerManager(
-        worker=worker,  # デフォルトのワーカー関数
-        max_workers=3,  # 並列実行するワーカー数
-    )
-
+    manager = WorkerManager(max_workers=3)
+    
     # タスクを追加
     for i in range(10):
-        await manager.add_task(process_data, i)
-
+        task = CalculationTask(value=i, multiplier=3)
+        await manager.add_task(task)
+    
     # 結果を順次処理
     async for task_result in manager.execute():
         if task_result.result.is_ok():
-            print(f"成功: {task_result.result.value}")
+            result = task_result.result.unwrap().unwrap()
+            print(f"成功: {result}")
         else:
-            print(f"エラー: {task_result.result.error}")
+            error = task_result.result.unwrap_err()
+            print(f"エラー: {error}")
+
+asyncio.run(main())
+```
+
+### 実用的なタスク例
+
+```python
+import asyncio
+from typing import Dict, List
+from pytoolkit_async_worker.task import Task, frozen_dataclass
+from pytoolkit_async_worker.worker_manager import WorkerManager
+
+@frozen_dataclass
+class EmailSendTask(Task[bool]):
+    """メール送信タスク"""
+    to: str
+    subject: str
+    body: str
+    priority: str = "normal"
+    
+    async def execute(self) -> bool:
+        # メール送信処理をシミュレート
+        send_delay = 0.2 if self.priority == "high" else 0.5
+        await asyncio.sleep(send_delay)
+        
+        if "@" not in self.to:
+            raise ValueError(f"Invalid email address: {self.to}")
+        
+        print(f"Email sent to {self.to}: {self.subject}")
+        return True
+
+@frozen_dataclass
+class FileProcessTask(Task[str]):
+    """ファイル処理タスク"""
+    file_path: str
+    operation: str  # "compress", "encrypt", "backup"
+    
+    async def execute(self) -> str:
+        # ファイル処理をシミュレート
+        await asyncio.sleep(0.3)
+        
+        if self.operation == "compress":
+            return f"{self.file_path}.gz"
+        elif self.operation == "encrypt":
+            return f"{self.file_path}.encrypted"
+        else:
+            raise ValueError(f"Unknown operation: {self.operation}")
+
+async def main():
+    manager = WorkerManager(max_workers=2)
+    
+    # 異なる種類のタスクを追加
+    await manager.add_task(EmailSendTask(
+        to="user@example.com",
+        subject="処理完了",
+        body="タスクが完了しました"
+    ))
+    
+    await manager.add_task(FileProcessTask(
+        file_path="/path/to/document.pdf",
+        operation="compress"
+    ))
+    
+    # 結果を処理
+    async for task_result in manager.execute():
+        if task_result.result.is_ok():
+            result = task_result.result.unwrap().unwrap()
+            print(f"タスク完了: {result}")
+        else:
+            error = task_result.result.unwrap_err()
+            print(f"タスクエラー: {error}")
 
 asyncio.run(main())
 ```
@@ -64,145 +143,123 @@ asyncio.run(main())
 ### エラーハンドリング
 
 ```python
-async def failing_task(value: int) -> int:
-    if value % 3 == 0:
-        raise ValueError(f"値 {value} は処理できません")
-    return value * 2
+@frozen_dataclass
+class RiskyTask(Task[int]):
+    """エラーが発生する可能性のあるタスク"""
+    value: int
+    
+    async def execute(self) -> int:
+        if self.value % 3 == 0:
+            raise ValueError(f"値 {self.value} は処理できません")
+        return self.value * 2
 
 async def main():
-    manager = WorkerManager(worker=worker, max_workers=2)
-
+    manager = WorkerManager(max_workers=2)
+    
     # 正常なタスクとエラーになるタスクを混在
     for i in range(5):
-        await manager.add_task(failing_task, i)
-
+        await manager.add_task(RiskyTask(value=i))
+    
     async for task_result in manager.execute():
         if task_result.result.is_ok():
-            print(f"成功: 引数={task_result.args}, 結果={task_result.result.value}")
+            result = task_result.result.unwrap().unwrap()
+            print(f"成功: 値={task_result.task.value}, 結果={result}")
         else:
-            print(f"失敗: 引数={task_result.args}, エラー={task_result.result.error}")
+            error = task_result.result.unwrap_err()
+            print(f"失敗: 値={task_result.task.value}, エラー={error}")
 
 asyncio.run(main())
 ```
 
-### キーワード引数を使用したタスク
+### より複雑なタスクの例
 
 ```python
-async def process_with_options(data: str, multiplier: int = 1, prefix: str = "") -> str:
-    result = data * multiplier
-    return f"{prefix}{result}"
+@frozen_dataclass
+class DatabaseQueryTask(Task[Dict[str, any]]):
+    """データベースクエリタスク"""
+    query: str
+    params: Dict[str, any]
+    timeout: int = 30
+    
+    async def execute(self) -> Dict[str, any]:
+        # データベースクエリをシミュレート
+        await asyncio.sleep(0.05)
+        
+        if "SELECT" in self.query.upper():
+            return {
+                "rows": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}],
+                "count": 2
+            }
+        else:
+            return {"affected_rows": 1}
 
-async def main():
-    manager = WorkerManager(worker=worker, max_workers=2)
-
-    # 位置引数とキーワード引数を組み合わせて使用
-    await manager.add_task(process_with_options, "Hello", multiplier=3, prefix=">>> ")
-    await manager.add_task(process_with_options, "World", multiplier=2)
-
-    async for task_result in manager.execute():
-        if task_result.result.is_ok():
-            print(f"結果: {task_result.result.value}")
-            print(f"引数: args={task_result.args}, kwargs={task_result.kwargs}")
-
-asyncio.run(main())
-```
-
-### ワーカーの直接使用
-
-```python
-import asyncio
-from pytoolkit_async_worker.worker import worker, Task, PendingTaskQueue, TaskResultQueue
-
-async def simple_task(x: int) -> int:
-    return x ** 2
-
-async def run_worker_directly():
-    # キューを作成
-    pending_queue = PendingTaskQueue()
-    result_queue = TaskResultQueue()
-
-    # タスクを作成してキューに追加
-    task = Task(func=simple_task, args=(5,), kwargs={})
-    await pending_queue.put(task)
-
-    # ワーカーを実行
-    await worker(pending_queue, result_queue)
-
-    # 結果を取得
-    task_result = await result_queue.get()
-    if task_result.result.is_ok():
-        print(f"結果: {task_result.result.value}")  # 25
-
-asyncio.run(run_worker_directly())
+@frozen_dataclass
+class WebScrapingTask(Task[Dict[str, any]]):
+    """Webスクレイピングタスク"""
+    url: str
+    selectors: Dict[str, str]
+    timeout: int = 30
+    
+    async def execute(self) -> Dict[str, any]:
+        # Webスクレイピングをシミュレート
+        await asyncio.sleep(0.3)
+        
+        return {
+            "url": self.url,
+            "title": "Sample Page Title",
+            "content": "Sample scraped content...",
+            "timestamp": "2024-01-01T00:00:00Z"
+        }
 ```
 
 ## API リファレンス
 
-### Result[T]
+### Task[T]
 
-エラーと正常な結果を安全に扱うための型です。
-
-```python
-from pytoolkit_async_worker.result import Result
-
-# 正常な結果
-result = Result[int](42)
-assert result.is_ok()
-assert result.value == 42
-
-# エラー結果
-error_result = Result[int](ValueError("エラー"))
-assert error_result.is_error()
-assert isinstance(error_result.error, ValueError)
-```
-
-**メソッド:**
-
-- `is_ok() -> bool`: 正常な結果かどうか
-- `is_error() -> bool`: エラー結果かどうか
-- `value: T`: 正常な値を取得（エラーの場合は例外発生）
-- `error: Exception`: エラーを取得（正常な場合は例外発生）
-
-### Task[P, R]
-
-実行するタスクを表すデータクラスです。
+非同期処理を表現する抽象基底クラスです。
 
 ```python
-from pytoolkit_async_worker.worker import Task
+from pytoolkit_async_worker.task import Task, frozen_dataclass
 
-task = Task(
-    func=my_async_function,
-    args=(arg1, arg2),
-    kwargs={"key": "value"}
-)
+@frozen_dataclass
+class MyTask(Task[str]):
+    data: str
+    
+    async def execute(self) -> str:
+        # ここに処理を実装
+        return self.data.upper()
 ```
 
-### TaskResult[R]
+**重要なポイント:**
+- `@frozen_dataclass` で不変オブジェクトとして定義
+- `execute()` メソッドで実際の処理を実装
+- ジェネリクスで戻り値の型を指定
+
+### TaskResult[T]
 
 タスクの実行結果を表すデータクラスです。
 
 ```python
-from pytoolkit_async_worker.worker import TaskResult
+from pytoolkit_async_worker.task import TaskResult
 
-# task_result.result は Result[R] 型
-# task_result.args は実行時の位置引数
-# task_result.kwargs は実行時のキーワード引数
+# task_result.task は実行されたTaskオブジェクト
+# task_result.result は Result[Option[T]] 型
 ```
 
-### WorkerManager[P, R]
+### WorkerManager[T]
 
 複数のワーカーを管理し、分散タスク処理を行います。
 
 ```python
-from pytoolkit_async_worker.worker import WorkerManager, worker
+from pytoolkit_async_worker.worker_manager import WorkerManager
 
 manager = WorkerManager(
-    worker=worker,      # ワーカー関数
     max_workers=3,      # 最大ワーカー数
+    worker=worker,      # ワーカー関数（デフォルト）
 )
 
 # タスクを追加
-await manager.add_task(my_function, arg1, arg2, key=value)
+await manager.add_task(my_task)
 
 # タスクを実行して結果を取得
 async for task_result in manager.execute():
@@ -215,12 +272,12 @@ async for task_result in manager.execute():
 タスクを実行するデフォルトのワーカー関数です。
 
 ```python
-from pytoolkit_async_worker.worker import worker, PendingTaskQueue, TaskResultQueue
+from pytoolkit_async_worker.worker import worker, PendingTaskQueue
 
-await worker(
-    pending_task_queue,  # 実行待ちタスクのキュー
-    task_result_queue,   # 実行結果のキュー
-)
+pending_queue = PendingTaskQueue()
+async for task_result in worker(pending_queue):
+    # 結果を処理
+    pass
 ```
 
 ## 開発
@@ -254,3 +311,47 @@ uv run pytest tests/test_worker.py -v
 # カバレッジ付きでテスト実行
 uv run pytest --cov=pytoolkit_async_worker
 ```
+
+## 設計思想
+
+### なぜTaskクラスを使うのか
+
+1. **明確な責任分離**: 各タスクは特定の処理を表現する独立したクラス
+2. **型安全性**: ジェネリクスにより、戻り値の型が明確
+3. **再利用性**: 同じタスクを異なるパラメータで複数回実行可能
+4. **テストしやすさ**: 各タスクを個別にテスト可能
+5. **保守性**: 処理の変更が他の処理に影響しない
+
+### 使用例の比較
+
+**従来の関数ベースアプローチ:**
+```python
+# 処理が散らばりやすい
+async def process_email(to, subject, body, priority="normal"):
+    # 処理実装
+    pass
+
+# 呼び出し側
+await manager.add_task(process_email, "user@example.com", "件名", "本文")
+```
+
+**Taskクラスベースアプローチ:**
+```python
+# 処理が整理されている
+@frozen_dataclass
+class EmailSendTask(Task[bool]):
+    to: str
+    subject: str
+    body: str
+    priority: str = "normal"
+    
+    async def execute(self) -> bool:
+        # 処理実装
+        pass
+
+# 呼び出し側
+task = EmailSendTask(to="user@example.com", subject="件名", body="本文")
+await manager.add_task(task)
+```
+
+Taskクラスアプローチにより、コードの可読性、保守性、テストしやすさが向上します。
