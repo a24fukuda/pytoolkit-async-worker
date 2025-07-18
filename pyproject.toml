@@ -1,6 +1,6 @@
 [project]
 name = "pytoolkit-async-worker"
-version = "v2025.07.15"
+version = "v2025.07.18.01"
 description = "Result型による例外安全な非同期タスクワーカーライブラリ"
 readme = "README.md"
 license = "MIT"

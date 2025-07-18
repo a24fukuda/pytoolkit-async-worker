@@ -99,7 +99,7 @@ wheels = [
 
 [[package]]
 name = "pytoolkit-async-worker"
-version = "2025.7.15"
+version = "2025.7.18.1"
 source = { editable = "." }
 dependencies = [
     { name = "pytoolkit-rustlike" },
